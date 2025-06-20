@@ -288,6 +288,11 @@ class Game {
             e.preventDefault();
             return;
         }
+        if (e.key.toLowerCase() === 'n' && this.gameOver) {
+            this.restartGame();
+            e.preventDefault();
+            return;
+        }
         if (!this.awaitingAction) return;
         let dx = 0, dy = 0;
         if (e.key === 'ArrowUp') dy = -1;
@@ -467,32 +472,66 @@ class Game {
     }
     enemyTurn() {
         if (this.gameOver) return;
-        for (let enemy of this.enemyUnits.filter(e => e.isAlive())) {
+        const aliveEnemies = this.enemyUnits.filter(e => e.isAlive());
+        let messages = [];
+        for (let enemy of aliveEnemies) {
             let target = this.findNearestPlayer(enemy);
-            if (!target) continue;
+            if (!target) {
+                messages.push(`${enemy.getClassDisplay()} remains at ${getCoordLabel(enemy.x, enemy.y)}.`);
+                continue;
+            }
             let dx = Math.sign(target.x - enemy.x);
             let dy = Math.sign(target.y - enemy.y);
             let nx = enemy.x + dx, ny = enemy.y + dy;
-            if (this.grid.isWithinBounds(nx, ny) && !this.grid.getTile(nx, ny).unit) {
-                this.grid.moveUnit(enemy, nx, ny);
-                this.a11y.announce(`${enemy.getClassDisplay()} moves to ${getCoordLabel(nx, ny)}.`);
-            }
-            if (Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y) === 1) {
-                target.hp -= 12;
-                this.a11y.announce(`${enemy.getClassDisplay()} attacks ${target.getClassDisplay()} for 12 damage. ${target.getClassDisplay()} has ${Math.max(0, target.hp)} HP left.`);
-                if (target.hp <= 0) {
-                    this.grid.getTile(target.x, target.y).unit = null;
-                    this.a11y.announce(`${target.getClassDisplay()} defeated!`);
+            let moved = false;
+            // Only move if not already adjacent to a player
+            if ((Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y)) > 1) {
+                if (this.grid.isWithinBounds(nx, ny) && !this.grid.getTile(nx, ny).unit) {
+                    this.grid.moveUnit(enemy, nx, ny);
+                    moved = true;
                 }
             }
+            // After moving, check if adjacent to a player
+            let newTarget = this.findNearestPlayer(enemy); // recalc in case moved
+            if (newTarget && Math.abs(newTarget.x - enemy.x) + Math.abs(newTarget.y - enemy.y) === 1) {
+                newTarget.hp -= 12;
+                messages.push(`${enemy.getClassDisplay()} is at ${getCoordLabel(enemy.x, enemy.y)} and attacks ${newTarget.getClassDisplay()} for 12 damage. ${newTarget.getClassDisplay()} has ${Math.max(0, newTarget.hp)} HP left.`);
+                if (newTarget.hp <= 0) {
+                    this.grid.getTile(newTarget.x, newTarget.y).unit = null;
+                    messages.push(`${newTarget.getClassDisplay()} defeated!`);
+                }
+            } else {
+                messages.push(`${enemy.getClassDisplay()} is at ${getCoordLabel(enemy.x, enemy.y)} and does not attack.`);
+            }
         }
-        this.checkVictory();
-        if (this.gameOver) return;
-        setTimeout(() => {
-            this.a11y.announce('Player turn.');
-            this.selectUnit(0);
-            this.awaitingAction = true;
-        }, 800);
+        // Announce all moves and attacks in order
+        if (messages.length > 0) {
+            let i = 0;
+            const announceNext = () => {
+                if (i < messages.length) {
+                    this.a11y.announce(messages[i]);
+                    i++;
+                    setTimeout(announceNext, 900);
+                } else {
+                    this.checkVictory();
+                    if (this.gameOver) return;
+                    setTimeout(() => {
+                        this.a11y.announce('Player turn.');
+                        this.selectUnit(0);
+                        this.awaitingAction = true;
+                    }, 800);
+                }
+            };
+            announceNext();
+        } else {
+            this.checkVictory();
+            if (this.gameOver) return;
+            setTimeout(() => {
+                this.a11y.announce('Player turn.');
+                this.selectUnit(0);
+                this.awaitingAction = true;
+            }, 800);
+        }
     }
     findNearestPlayer(enemy) {
         let minDist = Infinity, nearest = null;
@@ -510,13 +549,41 @@ class Game {
         const allPlayersDefeated = this.playerUnits.every(u => !u.isAlive());
         if (allEnemiesDefeated) {
             this.gameOver = true;
-            this.a11y.announce('Victory! All enemies defeated.');
-            setTimeout(() => alert('Victory! All enemies defeated.'), 100);
+            this.a11y.announce('Victory! All enemies defeated. Press N to start a new game.');
+            setTimeout(() => {
+                if (confirm('Victory! All enemies defeated.\n\nStart a new game?')) {
+                    this.restartGame();
+                }
+            }, 100);
         } else if (allPlayersDefeated) {
             this.gameOver = true;
-            this.a11y.announce('Defeat! All your units have fallen.');
-            setTimeout(() => alert('Defeat! All your units have fallen.'), 100);
+            this.a11y.announce('Defeat! All your units have fallen. Press N to start a new game.');
+            setTimeout(() => {
+                if (confirm('Defeat! All your units have fallen.\n\nStart a new game?')) {
+                    this.restartGame();
+                }
+            }, 100);
         }
+    }
+    restartGame() {
+        // Reset all game state and start a new game
+        this.grid = new Grid(10, 10);
+        this.playerUnits = [];
+        this.enemyUnits = [];
+        this.currentTurn = 'player';
+        this.selectedUnit = null;
+        this.selectedX = 0;
+        this.selectedY = 0;
+        this.selectedUnitIndex = 0;
+        this.awaitingAction = false;
+        this.gameOver = false;
+        this.hasMoved = false;
+        this.hasAttacked = false;
+        this.enemyStatusIndex = 0;
+        this.ui.renderGrid(this.grid);
+        this.ui.renderUnitDetails(null);
+        this.ui.renderHelp();
+        this.init();
     }
 }
 
