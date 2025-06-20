@@ -169,6 +169,8 @@ class UI {
                 <li><strong>W</strong>: Wait (skip this unit's turn)</li>
                 <li><strong>Space</strong>: End your turn</li>
                 <li><strong>H</strong>: Toggle this help</li>
+                <li><strong>S</strong>: Status (announce info about the current square and any unit there)</li>
+                <li><strong>E</strong>: Cycle through enemy units and announce their location and health</li>
             </ul>
             <p>
                 <strong>How to move:</strong> Use the arrow keys to move the blue selection box to your desired destination, then press <strong>D</strong> to deploy your active unit there (if within movement range and the tile is empty).<br>
@@ -177,6 +179,7 @@ class UI {
                 Archer: up to 3 tiles away (straight lines).<br>
                 Mage: area (all enemies within 2 tiles).<br>
                 <strong>Elevation:</strong> Higher ground gives bonus damage and defense.<br>
+                <strong>Elevation effect:</strong> Each elevation level above your target gives you +5 damage, and each elevation level below gives you -5 damage. For example, attacking from a hill (+2 elevation) to a valley (0 elevation) gives +10 damage. Attacking uphill (from 0 to 2) gives -10 damage.<br>
             </p>
             <button id="closeHelp">Close (Esc)</button>
         `;
@@ -200,6 +203,8 @@ class Game {
         this.awaitingAction = false;
         this.gameOver = false;
         this.hasMoved = false; // Track if the selected unit has moved this turn
+        this.hasAttacked = false; // Track if the selected unit has attacked this turn
+        this.enemyStatusIndex = 0; // For cycling through enemies with E
     }
     init() {
         this.createInitialUnits();
@@ -220,15 +225,20 @@ class Game {
         this.grid.placeUnit(this.playerUnits[2], 0, 2);
         this.enemyUnits = [
             new Unit('Goblin', 'enemy', 50, 1, 1),
-            new Unit('Orc', 'enemy', 70, 1, 1)
+            new Unit('Orc', 'enemy', 70, 1, 1),
+            new Unit('Troll', 'enemy', 90, 1, 1),
+            new Unit('Imp', 'enemy', 40, 1, 1)
         ];
         this.grid.placeUnit(this.enemyUnits[0], 9, 9);
         this.grid.placeUnit(this.enemyUnits[1], 9, 8);
+        this.grid.placeUnit(this.enemyUnits[2], 8, 9);
+        this.grid.placeUnit(this.enemyUnits[3], 8, 8);
     }
     setupEventListeners() {
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
         document.getElementById('helpButton').addEventListener('click', () => this.ui.toggleHelp());
         document.getElementById('endTurn').addEventListener('click', () => this.endTurn());
+        // Add status command listener (S key)
     }
     selectUnit(index) {
         if (this.gameOver) return;
@@ -243,6 +253,7 @@ class Game {
         this.selectedY = this.selectedUnit.y;
         this.awaitingAction = true;
         this.hasMoved = false;
+        this.hasAttacked = false;
         this.ui.renderGrid(this.grid, this.selectedX, this.selectedY);
         this.ui.renderUnitDetails(this.selectedUnit);
         this.a11y.announce(
@@ -264,6 +275,16 @@ class Game {
         }
         if (e.key.toLowerCase() === 'h') {
             this.ui.toggleHelp();
+            e.preventDefault();
+            return;
+        }
+        if (e.key.toLowerCase() === 's') {
+            this.statusCommand();
+            e.preventDefault();
+            return;
+        }
+        if (e.key.toLowerCase() === 'e') {
+            this.cycleEnemyStatus();
             e.preventDefault();
             return;
         }
@@ -316,6 +337,30 @@ class Game {
             return;
         }
     }
+    statusCommand() {
+        // Announce info about the current square and any unit there (with HP if present)
+        const tile = this.grid.getTile(this.selectedX, this.selectedY);
+        let msg = `Status for ${getCoordLabel(this.selectedX, this.selectedY)}: `;
+        msg += tile.elevation === 0 ? 'Ground Level' : `Elevation ${tile.elevation}`;
+        if (tile.unit) {
+            msg += `, Occupied by ${tile.unit.getClassDisplay()} (HP: ${tile.unit.hp})`;
+        } else {
+            msg += ', Unoccupied';
+        }
+        this.a11y.announce(msg);
+    }
+    cycleEnemyStatus() {
+        // Cycle through alive enemies and announce their info
+        const aliveEnemies = this.enemyUnits.filter(e => e.isAlive());
+        if (aliveEnemies.length === 0) {
+            this.a11y.announce('No enemies remain.');
+            return;
+        }
+        if (this.enemyStatusIndex >= aliveEnemies.length) this.enemyStatusIndex = 0;
+        const enemy = aliveEnemies[this.enemyStatusIndex];
+        this.a11y.announce(`${enemy.getClassDisplay()} at ${getCoordLabel(enemy.x, enemy.y)}. HP: ${enemy.hp}`);
+        this.enemyStatusIndex++;
+    }
     tryMove() {
         if (this.gameOver) return;
         const unit = this.selectedUnit;
@@ -341,6 +386,10 @@ class Game {
     }
     tryAttack() {
         if (this.gameOver) return;
+        if (this.hasAttacked) {
+            this.a11y.announce('You have already attacked this turn.');
+            return;
+        }
         const unit = this.selectedUnit;
         const targets = this.getAttackTargets(unit);
         const target = targets.find(u => u.x === this.selectedX && u.y === this.selectedY);
@@ -359,7 +408,7 @@ class Game {
             this.grid.getTile(target.x, target.y).unit = null;
             this.a11y.announce(`${target.getClassDisplay()} defeated!`);
         }
-        // Do NOT end the unit's turn here. Allow the player to wait or end turn after attacking.
+        this.hasAttacked = true;
         this.ui.renderGrid(this.grid, this.selectedX, this.selectedY);
         this.checkVictory();
         // Player must press W (wait) or Space/Enter (end turn) to finish this unit's turn.
@@ -405,6 +454,7 @@ class Game {
         if (this.gameOver) return;
         this.selectedUnit.hasActed = true;
         this.hasMoved = false;
+        this.hasAttacked = false;
         this.a11y.announce(`${this.selectedUnit.getClassDisplay()} waits.`);
         this.selectUnit(this.selectedUnitIndex + 1);
     }
