@@ -28,13 +28,13 @@ class Unit {
     getAttackType() {
         if (this.type === 'warrior') return 'melee';
         if (this.type === 'archer') return 'ranged';
-        if (this.type === 'wizard') return 'magic';
+        if (this.type === 'mage') return 'magic';
         return 'melee';
     }
     getClassDisplay() {
         if (this.type === 'warrior') return 'Warrior';
         if (this.type === 'archer') return 'Archer';
-        if (this.type === 'wizard') return 'Wizard';
+        if (this.type === 'mage') return 'Mage';
         if (this.type === 'enemy') return this.name;
         return this.type;
     }
@@ -140,10 +140,14 @@ class UI {
             this.unitDetailsEl.innerHTML = '';
             return;
         }
+        let rangeText = '';
+        if (unit.getAttackType() === 'melee') rangeText = 'adjacent (1 tile)';
+        else if (unit.getAttackType() === 'ranged') rangeText = 'up to 3 tiles (straight lines)';
+        else if (unit.getAttackType() === 'magic') rangeText = 'area (within 2 tiles)';
         this.unitDetailsEl.innerHTML = `
             <strong>${unit.getClassDisplay()}</strong><br>
             HP: ${unit.hp}/${unit.maxHp}<br>
-            Move: ${unit.moveRange}, Attack: ${unit.attackRange} (${unit.getAttackType()})
+            Move: ${unit.moveRange}, Attack: ${unit.attackRange} (${unit.getAttackType()}, ${rangeText})
         `;
     }
     toggleHelp() {
@@ -160,18 +164,19 @@ class UI {
             <ul>
                 <li><strong>Arrow keys</strong>: Move the selection cursor around the grid</li>
                 <li><strong>Tab</strong>: Cycle between your available units</li>
-                <li><strong>M</strong>: Move the selected unit to the currently selected tile (if in range and unoccupied)</li>
+                <li><strong>D</strong>: Deploy (move) the selected unit to the currently selected tile (if in range and unoccupied)</li>
                 <li><strong>A</strong>: Attack an enemy at the selected tile (if in range)</li>
                 <li><strong>W</strong>: Wait (skip this unit's turn)</li>
                 <li><strong>Space</strong>: End your turn</li>
                 <li><strong>H</strong>: Toggle this help</li>
             </ul>
             <p>
-                <strong>How to move:</strong> Use the arrow keys to move the blue selection box to your desired destination, then press <strong>M</strong> to move your active unit there (if within movement range and the tile is empty).<br>
+                <strong>How to move:</strong> Use the arrow keys to move the blue selection box to your desired destination, then press <strong>D</strong> to deploy your active unit there (if within movement range and the tile is empty).<br>
+                <strong>Attack ranges:</strong><br>
+                Warrior: adjacent (1 tile).<br>
+                Archer: up to 3 tiles away (straight lines).<br>
+                Mage: area (all enemies within 2 tiles).<br>
                 <strong>Elevation:</strong> Higher ground gives bonus damage and defense.<br>
-                <strong>Warrior:</strong> Melee, high HP.<br>
-                <strong>Archer:</strong> Ranged, moderate HP.<br>
-                <strong>Wizard:</strong> Area magic, low HP.<br>
             </p>
             <button id="closeHelp">Close (Esc)</button>
         `;
@@ -206,9 +211,9 @@ class Game {
     }
     createInitialUnits() {
         this.playerUnits = [
-            new Unit('Warrior', 'warrior', 100, 1, 1),
+            new Unit('Warrior', 'warrior', 100, 4, 1),
             new Unit('Archer', 'archer', 80, 3, 1),
-            new Unit('Wizard', 'wizard', 60, 2, 2)
+            new Unit('Mage', 'mage', 60, 2, 2)
         ];
         this.grid.placeUnit(this.playerUnits[0], 0, 0);
         this.grid.placeUnit(this.playerUnits[1], 0, 1);
@@ -305,7 +310,7 @@ class Game {
             e.preventDefault();
             return;
         }
-        if (e.key === 'm') {
+        if (e.key.toLowerCase() === 'd') {
             this.tryMove();
             e.preventDefault();
             return;
@@ -339,22 +344,25 @@ class Game {
         const unit = this.selectedUnit;
         const targets = this.getAttackTargets(unit);
         const target = targets.find(u => u.x === this.selectedX && u.y === this.selectedY);
+        let rangeText = '';
+        if (unit.getAttackType() === 'melee') rangeText = 'adjacent (1 tile)';
+        else if (unit.getAttackType() === 'ranged') rangeText = 'up to 3 tiles (straight lines)';
+        else if (unit.getAttackType() === 'magic') rangeText = 'area (within 2 tiles)';
         if (!target) {
-            this.a11y.announce('No valid target at this tile.');
+            this.a11y.announce(`No valid target at this tile. Your attack range is: ${rangeText}.`);
             return;
         }
         const damage = this.calculateDamage(unit, target);
         target.hp -= damage;
-        this.a11y.announce(`${unit.getClassDisplay()} attacked ${target.getClassDisplay()} for ${damage} damage.`);
+        this.a11y.announce(`${unit.getClassDisplay()} attacked ${target.getClassDisplay()} for ${damage} damage. ${target.getClassDisplay()} has ${Math.max(0, target.hp)} HP left. (Range: ${rangeText})`);
         if (target.hp <= 0) {
             this.grid.getTile(target.x, target.y).unit = null;
             this.a11y.announce(`${target.getClassDisplay()} defeated!`);
         }
-        unit.hasActed = true;
-        this.hasMoved = false;
+        // Do NOT end the unit's turn here. Allow the player to wait or end turn after attacking.
         this.ui.renderGrid(this.grid, this.selectedX, this.selectedY);
         this.checkVictory();
-        if (!this.gameOver) this.selectUnit(this.selectedUnitIndex + 1);
+        // Player must press W (wait) or Space/Enter (end turn) to finish this unit's turn.
     }
     getAttackTargets(unit) {
         let targets = [];
@@ -421,7 +429,7 @@ class Game {
             }
             if (Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y) === 1) {
                 target.hp -= 12;
-                this.a11y.announce(`${enemy.getClassDisplay()} attacks ${target.getClassDisplay()} for 12 damage.`);
+                this.a11y.announce(`${enemy.getClassDisplay()} attacks ${target.getClassDisplay()} for 12 damage. ${target.getClassDisplay()} has ${Math.max(0, target.hp)} HP left.`);
                 if (target.hp <= 0) {
                     this.grid.getTile(target.x, target.y).unit = null;
                     this.a11y.announce(`${target.getClassDisplay()} defeated!`);
