@@ -143,7 +143,7 @@ class UI {
         let rangeText = '';
         if (unit.getAttackType() === 'melee') rangeText = 'adjacent (1 tile)';
         else if (unit.getAttackType() === 'ranged') rangeText = 'up to 3 tiles (straight lines)';
-        else if (unit.getAttackType() === 'magic') rangeText = 'area (within 2 tiles)';
+        else if (unit.getAttackType() === 'magic') rangeText = 'any enemy within 2 tiles';
         this.unitDetailsEl.innerHTML = `
             <strong>${unit.getClassDisplay()}</strong><br>
             HP: ${unit.hp}/${unit.maxHp}<br>
@@ -177,7 +177,7 @@ class UI {
                 <strong>Attack ranges:</strong><br>
                 Warrior: adjacent (1 tile).<br>
                 Archer: up to 3 tiles away (straight lines).<br>
-                Mage: area (all enemies within 2 tiles).<br>
+                Mage: any enemy within 2 tiles.<br>
                 <strong>Elevation:</strong> Higher ground gives bonus damage and defense.<br>
                 <strong>Elevation effect:</strong> Each elevation level above your target gives you +5 damage, and each elevation level below gives you -5 damage. For example, attacking from a hill (+2 elevation) to a valley (0 elevation) gives +10 damage. Attacking uphill (from 0 to 2) gives -10 damage.<br>
             </p>
@@ -224,10 +224,10 @@ class Game {
         this.grid.placeUnit(this.playerUnits[1], 0, 1);
         this.grid.placeUnit(this.playerUnits[2], 0, 2);
         this.enemyUnits = [
-            new Unit('Goblin', 'enemy', 50, 1, 1),
-            new Unit('Orc', 'enemy', 70, 1, 1),
-            new Unit('Troll', 'enemy', 90, 1, 1),
-            new Unit('Imp', 'enemy', 40, 1, 1)
+            new Unit('Goblin', 'enemy', 50, 2, 1),
+            new Unit('Orc', 'enemy', 70, 2, 1),
+            new Unit('Troll', 'enemy', 90, 2, 1),
+            new Unit('Imp', 'enemy', 40, 2, 1)
         ];
         this.grid.placeUnit(this.enemyUnits[0], 9, 9);
         this.grid.placeUnit(this.enemyUnits[1], 9, 8);
@@ -401,7 +401,7 @@ class Game {
         let rangeText = '';
         if (unit.getAttackType() === 'melee') rangeText = 'adjacent (1 tile)';
         else if (unit.getAttackType() === 'ranged') rangeText = 'up to 3 tiles (straight lines)';
-        else if (unit.getAttackType() === 'magic') rangeText = 'area (within 2 tiles)';
+        else if (unit.getAttackType() === 'magic') rangeText = 'any enemy within 2 tiles';
         if (!target) {
             this.a11y.announce(`No valid target at this tile. Your attack range is: ${rangeText}.`);
             return;
@@ -474,22 +474,42 @@ class Game {
         if (this.gameOver) return;
         const aliveEnemies = this.enemyUnits.filter(e => e.isAlive());
         let moveMessages = [];
-        let attackMessages = [];
         let movedEnemies = new Set();
-        // First, move all enemies and record their moves
+        // Move all enemies up to their moveRange (minimum 2 tiles)
         for (let enemy of aliveEnemies) {
             let target = this.findNearestPlayer(enemy);
             if (!target) continue;
-            let dx = Math.sign(target.x - enemy.x);
-            let dy = Math.sign(target.y - enemy.y);
-            let nx = enemy.x + dx, ny = enemy.y + dy;
-            // Only move if not already adjacent to a player
-            if ((Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y)) > 1) {
+            let steps = Math.max(2, enemy.moveRange);
+            let ex = enemy.x, ey = enemy.y;
+            for (let s = 0; s < steps; s++) {
+                // If already adjacent to a player, stop moving to attack
+                if (Math.abs(target.x - ex) + Math.abs(target.y - ey) === 1) break;
+                let dx = Math.sign(target.x - ex);
+                let dy = Math.sign(target.y - ey);
+                let nx = ex + dx, ny = ey + dy;
+                // Prefer moving closer to the player, not away
                 if (this.grid.isWithinBounds(nx, ny) && !this.grid.getTile(nx, ny).unit) {
-                    this.grid.moveUnit(enemy, nx, ny);
-                    moveMessages.push(`${enemy.getClassDisplay()} moved to ${getCoordLabel(nx, ny)}.`);
-                    movedEnemies.add(enemy);
+                    ex = nx; ey = ny;
+                } else {
+                    // Try alternate directions if blocked, but only if it doesn't increase distance
+                    let moved = false;
+                    let options = [[dx,0],[0,dy],[-dx,0],[0,-dy]];
+                    for (let [adx, ady] of options) {
+                        let ax = ex + adx, ay = ey + ady;
+                        let newDist = Math.abs(target.x - ax) + Math.abs(target.y - ay);
+                        if (this.grid.isWithinBounds(ax, ay) && !this.grid.getTile(ax, ay).unit && newDist < Math.abs(target.x - ex) + Math.abs(target.y - ey)) {
+                            ex = ax; ey = ay;
+                            moved = true;
+                            break;
+                        }
+                    }
+                    if (!moved) break;
                 }
+            }
+            if (ex !== enemy.x || ey !== enemy.y) {
+                this.grid.moveUnit(enemy, ex, ey);
+                moveMessages.push(`${enemy.getClassDisplay()} moved to ${getCoordLabel(ex, ey)}.`);
+                movedEnemies.add(enemy);
             }
         }
         // Update the board visually after all moves
@@ -497,11 +517,9 @@ class Game {
         // Now, process attacks and announce moves/attacks
         let messages = [];
         for (let enemy of aliveEnemies) {
-            // Announce move if enemy moved
             if (movedEnemies.has(enemy)) {
                 messages.push(`${enemy.getClassDisplay()} moved to ${getCoordLabel(enemy.x, enemy.y)}.`);
             }
-            // Check for attack
             let target = this.findNearestPlayer(enemy);
             if (target && Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y) === 1) {
                 target.hp -= 12;
@@ -512,7 +530,6 @@ class Game {
                 }
             }
         }
-        // Announce all moves and attacks in order
         if (messages.length > 0) {
             let i = 0;
             const announceNext = () => {
@@ -548,6 +565,11 @@ class Game {
             if (dist < minDist) {
                 minDist = dist;
                 nearest = unit;
+            } else if (dist === minDist && nearest) {
+                // If two units are equally close, pick the one with the lowest HP
+                if (unit.hp < nearest.hp) {
+                    nearest = unit;
+                }
             }
         }
         return nearest;
