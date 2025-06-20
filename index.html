@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tactics Game Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Tactics Game Demo</h1>
+        <button id="helpButton" aria-expanded="false" aria-controls="helpPanel">Game Guide (H)</button>
+    </header>
+    <main>
+        <div id="gameStatus" role="status" aria-live="polite"></div>
+        <div id="gameGrid" role="grid" aria-label="Battle Grid" tabindex="0"></div>
+        <div id="activeUnit" role="region" aria-label="Active Unit Information">
+            <h2>Active Unit</h2>
+            <div id="unitDetails"></div>
+        </div>
+        <div id="controls" role="group" aria-label="Game Controls">
+            <button id="endTurn">End Turn (Space)</button>
+            <button id="wait">Wait (W)</button>
+            <button id="attack">Attack (A)</button>
+        </div>
+    </main>
+    <aside id="helpPanel" class="hidden" role="complementary" aria-label="Game Guide" tabindex="-1"></aside>
+    <script src="js/game.js"></script>
+</body>
+</html>

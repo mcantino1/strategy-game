@@ -1,0 +1,79 @@
+:root {
+    --grid-size: 48px;
+    --elevation-0: #fff;
+    --elevation-1: #e0e0e0;
+    --elevation-2: #bdbdbd;
+}
+
+body {
+    font-family: sans-serif;
+    background: #f8f8f8;
+    color: #222;
+}
+
+#gameGrid {
+    display: grid;
+    grid-template-columns: repeat(10, var(--grid-size));
+    gap: 2px;
+    margin: 1em 0;
+    outline: none;
+}
+
+.grid-cell {
+    width: var(--grid-size);
+    height: var(--grid-size);
+    border: 1px solid #bbb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    font-size: 0.9em;
+    background: var(--elevation-0);
+    cursor: pointer;
+}
+
+[data-elevation="0"] { background: var(--elevation-0); }
+[data-elevation="1"] { background: var(--elevation-1); }
+[data-elevation="2"] { background: var(--elevation-2); }
+
+.grid-cell.selected {
+    outline: 3px solid #1976d2;
+    z-index: 2;
+}
+
+.unit {
+    width: 80%;
+    height: 80%;
+    border-radius: 50%;
+    position: absolute;
+    left: 10%;
+    top: 10%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #fff;
+    font-size: 1em;
+}
+.player-unit { background: #388e3c; }
+.enemy-unit { background: #d32f2f; }
+
+#gameStatus {
+    min-height: 2em;
+    margin-bottom: 1em;
+    background: #f0f0f0;
+    padding: 0.5em;
+}
+
+#helpPanel {
+    background: #fff;
+    border: 2px solid #1976d2;
+    padding: 1em;
+    margin: 1em 0;
+    max-width: 400px;
+    position: absolute;
+    top: 2em;
+    left: 2em;
+    z-index: 10;
+}
+.hidden { display: none; }
