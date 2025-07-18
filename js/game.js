@@ -23,7 +23,6 @@ class Unit {
         this.x = null;
         this.y = null;
         this.hasActed = false;
-        this.movePointsUsed = 0; // Track movement used this turn
     }
     isAlive() { return this.hp > 0; }
     getAttackType() {
@@ -203,17 +202,13 @@ class Game {
         this.selectedUnitIndex = 0;
         this.awaitingAction = false;
         this.gameOver = false;
-        this.hasMoved = false;
-        this.hasAttacked = false;
-        this.enemyStatusIndex = 0;
-        // Attach event listeners only once
-        document.addEventListener('keydown', (e) => this.handleKeyboard(e));
-        document.getElementById('helpButton').addEventListener('click', () => this.ui.toggleHelp());
-        document.getElementById('endTurn').addEventListener('click', () => this.endTurn());
+        this.hasMoved = false; // Track if the selected unit has moved this turn
+        this.hasAttacked = false; // Track if the selected unit has attacked this turn
+        this.enemyStatusIndex = 0; // For cycling through enemies with E
     }
     init() {
         this.createInitialUnits();
-        // this.setupEventListeners(); // Remove this line
+        this.setupEventListeners();
         this.ui.renderGrid(this.grid);
         this.a11y.announce('Game started. Player turn.');
         this.ui.renderHelp();
@@ -239,6 +234,12 @@ class Game {
         this.grid.placeUnit(this.enemyUnits[2], 8, 9);
         this.grid.placeUnit(this.enemyUnits[3], 8, 8);
     }
+    setupEventListeners() {
+        document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+        document.getElementById('helpButton').addEventListener('click', () => this.ui.toggleHelp());
+        document.getElementById('endTurn').addEventListener('click', () => this.endTurn());
+        // Add status command listener (S key)
+    }
     selectUnit(index) {
         if (this.gameOver) return;
         const aliveUnits = this.playerUnits.filter(u => u.isAlive() && !u.hasActed);
@@ -251,7 +252,6 @@ class Game {
         this.selectedX = this.selectedUnit.x;
         this.selectedY = this.selectedUnit.y;
         this.awaitingAction = true;
-        this.selectedUnit.movePointsUsed = 0; // Reset movement for this unit's turn
         this.hasMoved = false;
         this.hasAttacked = false;
         this.ui.renderGrid(this.grid, this.selectedX, this.selectedY);
@@ -349,6 +349,76 @@ class Game {
         msg += tile.elevation === 0 ? 'Ground Level' : `Elevation ${tile.elevation}`;
         if (tile.unit) {
             msg += `, Occupied by ${tile.unit.getClassDisplay()} (HP: ${tile.unit.hp})`;
+            // --- Additional info ---
+            const unit = tile.unit;
+            let elev1 = [], elev2 = [];
+            let reachableEnemies = [];
+            // Find all reachable tiles within move range
+            for (let y = 0; y < this.grid.height; y++) {
+                for (let x = 0; x < this.grid.width; x++) {
+                    const t = this.grid.getTile(x, y);
+                    if (!t.unit) {
+                        const dist = Math.abs(x - unit.x) + Math.abs(y - unit.y);
+                        if (dist > 0 && dist <= unit.moveRange) {
+                            if (t.elevation === 1) elev1.push(getCoordLabel(x, y));
+                            if (t.elevation === 2) elev2.push(getCoordLabel(x, y));
+                            // Check if after moving here, can attack an enemy
+                            if (unit.getAttackType() === 'melee') {
+                                [[0,1],[1,0],[0,-1],[-1,0]].forEach(([dx,dy]) => {
+                                    let tx = x + dx, ty = y + dy;
+                                    let tt = this.grid.getTile(tx, ty);
+                                    if (tt && tt.unit && tt.unit.type === 'enemy') {
+                                        reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
+                                    }
+                                });
+                            } else if (unit.getAttackType() === 'ranged') {
+                                for (let d = 1; d <= 3; d++) {
+                                    [[d,0],[-d,0],[0,d],[0,-d]].forEach(([dx,dy]) => {
+                                        let tx = x + dx, ty = y + dy;
+                                        let tt = this.grid.getTile(tx, ty);
+                                        if (tt && tt.unit && tt.unit.type === 'enemy') {
+                                            reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
+                                        }
+                                    });
+                                }
+                            } else if (unit.getAttackType() === 'magic') {
+                                for (let dx = -2; dx <= 2; dx++) {
+                                    for (let dy = -2; dy <= 2; dy++) {
+                                        let tx = x + dx, ty = y + dy;
+                                        let tt = this.grid.getTile(tx, ty);
+                                        if (tt && tt.unit && tt.unit.type === 'enemy') {
+                                            reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let elevMsg = [];
+            if (elev1.length > 0) elevMsg.push(`elevation 1: ${elev1.join(', ')}`);
+            if (elev2.length > 0) elevMsg.push(`elevation 2: ${elev2.join(', ')}`);
+            if (elevMsg.length > 0) {
+                msg += `. Reachable elevated tiles (${elev1.length + elev2.length}): ${elevMsg.join('. ')}`;
+            } else {
+                msg += '. No reachable elevated tiles.';
+            }
+            // Remove duplicate enemy locations
+            const uniqueEnemies = [];
+            const seen = new Set();
+            for (const e of reachableEnemies) {
+                const key = e.name + '@' + e.loc;
+                if (!seen.has(key)) {
+                    uniqueEnemies.push(e);
+                    seen.add(key);
+                }
+            }
+            if (uniqueEnemies.length > 0) {
+                msg += ` You can move and attack: ` + uniqueEnemies.map(e => `${e.name} at ${e.loc}`).join(', ') + '.';
+            } else {
+                msg += ' No enemies are reachable for attack this turn.';
+            }
         } else {
             msg += ', Unoccupied';
         }
@@ -369,9 +439,13 @@ class Game {
     tryMove() {
         if (this.gameOver) return;
         const unit = this.selectedUnit;
+        if (this.hasMoved) {
+            this.a11y.announce('You have already moved this turn.');
+            return;
+        }
         const dist = Math.abs(this.selectedX - unit.x) + Math.abs(this.selectedY - unit.y);
-        if (unit.movePointsUsed + dist > unit.moveRange) {
-            this.a11y.announce('No movement points left for this turn.');
+        if (dist > unit.moveRange) {
+            this.a11y.announce('Out of movement range.');
             return;
         }
         const tile = this.grid.getTile(this.selectedX, this.selectedY);
@@ -380,10 +454,10 @@ class Game {
             return;
         }
         this.grid.moveUnit(unit, this.selectedX, this.selectedY);
-        unit.movePointsUsed += dist;
         this.ui.renderGrid(this.grid, this.selectedX, this.selectedY);
-        this.a11y.announce(`${unit.getClassDisplay()} moved to ${getCoordLabel(this.selectedX, this.selectedY)}. Movement used: ${unit.movePointsUsed}/${unit.moveRange}.`);
-        // Allow further moves if movement points remain
+        this.a11y.announce(`${unit.getClassDisplay()} moved to ${getCoordLabel(this.selectedX, this.selectedY)}. You may now attack or wait.`);
+        this.hasMoved = true;
+        // Do not end the unit's turn yet; allow attack or wait
     }
     tryAttack() {
         if (this.gameOver) return;
@@ -454,7 +528,6 @@ class Game {
     wait() {
         if (this.gameOver) return;
         this.selectedUnit.hasActed = true;
-        this.selectedUnit.movePointsUsed = 0;
         this.hasMoved = false;
         this.hasAttacked = false;
         this.a11y.announce(`${this.selectedUnit.getClassDisplay()} waits.`);
@@ -462,7 +535,7 @@ class Game {
     }
     endTurn() {
         if (this.gameOver) return;
-        this.playerUnits.forEach(u => { u.hasActed = false; u.movePointsUsed = 0; });
+        this.playerUnits.forEach(u => u.hasActed = false);
         this.a11y.announce('Enemy turn.');
         this.awaitingAction = false;
         setTimeout(() => this.enemyTurn(), 800);
