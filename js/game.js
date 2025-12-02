@@ -210,9 +210,15 @@ class Game {
         this.createInitialUnits();
         this.setupEventListeners();
         this.ui.renderGrid(this.grid);
-        this.a11y.announce('Game started. Player turn.');
         this.ui.renderHelp();
-        this.selectUnit(0);
+        
+        // Delay the first announcement and unit selection to ensure proper screen reader timing
+        setTimeout(() => {
+            this.a11y.announce('Game started. Player turn.');
+            setTimeout(() => {
+                this.selectUnit(0);
+            }, 1000); // Additional delay before selecting first unit
+        }, 500);
     }
     createInitialUnits() {
         this.playerUnits = [
@@ -349,80 +355,73 @@ class Game {
         msg += tile.elevation === 0 ? 'Ground Level' : `Elevation ${tile.elevation}`;
         if (tile.unit) {
             msg += `, Occupied by ${tile.unit.getClassDisplay()} (HP: ${tile.unit.hp})`;
-            // --- Additional info ---
-            const unit = tile.unit;
-            let elev1 = [], elev2 = [];
-            let reachableEnemies = [];
-            // Find all reachable tiles within move range
-            for (let y = 0; y < this.grid.height; y++) {
-                for (let x = 0; x < this.grid.width; x++) {
-                    const t = this.grid.getTile(x, y);
-                    if (!t.unit) {
-                        const dist = Math.abs(x - unit.x) + Math.abs(y - unit.y);
-                        if (dist > 0 && dist <= unit.moveRange) {
-                            if (t.elevation === 1) elev1.push(getCoordLabel(x, y));
-                            if (t.elevation === 2) elev2.push(getCoordLabel(x, y));
-                            // Check if after moving here, can attack an enemy
-                            if (unit.getAttackType() === 'melee') {
-                                [[0,1],[1,0],[0,-1],[-1,0]].forEach(([dx,dy]) => {
-                                    let tx = x + dx, ty = y + dy;
-                                    let tt = this.grid.getTile(tx, ty);
-                                    if (tt && tt.unit && tt.unit.type === 'enemy') {
-                                        reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
-                                    }
-                                });
-                            } else if (unit.getAttackType() === 'ranged') {
-                                for (let d = 1; d <= 3; d++) {
-                                    [[d,0],[-d,0],[0,d],[0,-d]].forEach(([dx,dy]) => {
-                                        let tx = x + dx, ty = y + dy;
-                                        let tt = this.grid.getTile(tx, ty);
-                                        if (tt && tt.unit && tt.unit.type === 'enemy') {
-                                            reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
-                                        }
-                                    });
-                                }
-                            } else if (unit.getAttackType() === 'magic') {
-                                for (let dx = -2; dx <= 2; dx++) {
-                                    for (let dy = -2; dy <= 2; dy++) {
-                                        let tx = x + dx, ty = y + dy;
-                                        let tt = this.grid.getTile(tx, ty);
-                                        if (tt && tt.unit && tt.unit.type === 'enemy') {
-                                            reachableEnemies.push({name: tt.unit.getClassDisplay(), loc: getCoordLabel(tx, ty)});
-                                        }
-                                    }
-                                }
-                            }
+            
+            // Find elevated squares within movement range
+            const range = tile.unit.moveRange;
+            let elevatedSquares = [];
+            for (let dx = -range; dx <= range; dx++) {
+                for (let dy = -range; dy <= range; dy++) {
+                    if (Math.abs(dx) + Math.abs(dy) <= range) {  // Manhattan distance for movement
+                        const newX = tile.unit.x + dx;
+                        const newY = tile.unit.y + dy;
+                        const checkTile = this.grid.getTile(newX, newY);
+                        if (checkTile && checkTile.elevation > 0) {
+                            elevatedSquares.push({
+                                coord: getCoordLabel(newX, newY),
+                                elevation: checkTile.elevation
+                            });
                         }
                     }
                 }
             }
-            let elevMsg = [];
-            if (elev1.length > 0) elevMsg.push(`elevation 1: ${elev1.join(', ')}`);
-            if (elev2.length > 0) elevMsg.push(`elevation 2: ${elev2.join(', ')}`);
-            if (elevMsg.length > 0) {
-                msg += `. Reachable elevated tiles (${elev1.length + elev2.length}): ${elevMsg.join('. ')}`;
-            } else {
-                msg += '. No reachable elevated tiles.';
+
+            // Group elevated squares by elevation level (highest first)
+            if (elevatedSquares.length > 0) {
+                msg += '. Elevated squares in range: ';
+                const byElevation = {};
+                elevatedSquares.forEach(square => {
+                    if (!byElevation[square.elevation]) {
+                        byElevation[square.elevation] = [];
+                    }
+                    byElevation[square.elevation].push(square.coord);
+                });
+                
+                // Add each elevation group in descending order
+                Object.keys(byElevation)
+                    .sort((a, b) => b - a)
+                    .forEach(elevation => {
+                        msg += `Level ${elevation}: ${byElevation[elevation].join(', ')}. `;
+                    });
             }
-            // Remove duplicate enemy locations
-            const uniqueEnemies = [];
-            const seen = new Set();
-            for (const e of reachableEnemies) {
-                const key = e.name + '@' + e.loc;
-                if (!seen.has(key)) {
-                    uniqueEnemies.push(e);
-                    seen.add(key);
-                }
-            }
-            if (uniqueEnemies.length > 0) {
-                msg += ` You can move and attack: ` + uniqueEnemies.map(e => `${e.name} at ${e.loc}`).join(', ') + '.';
-            } else {
-                msg += ' No enemies are reachable for attack this turn.';
+
+            // Find and add information about nearest enemy
+            const nearestEnemy = this.findNearestEnemy(tile.unit);
+            if (nearestEnemy) {
+                msg += `Nearest enemy is ${nearestEnemy.getClassDisplay()} at ${getCoordLabel(nearestEnemy.x, nearestEnemy.y)}`;
             }
         } else {
             msg += ', Unoccupied';
         }
         this.a11y.announce(msg);
+    }
+
+    findNearestEnemy(unit) {
+        let minDist = Infinity;
+        let nearest = null;
+        for (let enemy of this.enemyUnits) {
+            if (!enemy.isAlive()) continue;
+            const dist = Math.abs(enemy.x - unit.x) + Math.abs(enemy.y - unit.y);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = enemy;
+            } else if (dist === minDist && nearest) {
+                // If equidistant, prefer the enemy with lower HP
+                if (enemy.hp < nearest.hp) {
+                    nearest = enemy;
+                }
+            }
+        }
+        return nearest;
     }
     cycleEnemyStatus() {
         // Cycle through alive enemies and announce their info

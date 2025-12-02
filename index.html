@@ -6,24 +6,76 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header>
-        <h1>Tactics Game Demo</h1>
-        <button id="helpButton" aria-expanded="false" aria-controls="helpPanel">Game Guide (H)</button>
-    </header>
-    <main>
-        <div id="gameStatus" role="status" aria-live="polite"></div>
-        <div id="gameGrid" role="grid" aria-label="Battle Grid" tabindex="0"></div>
-        <div id="activeUnit" role="region" aria-label="Active Unit Information">
-            <h2>Active Unit</h2>
-            <div id="unitDetails"></div>
-        </div>
-        <div id="controls" role="group" aria-label="Game Controls">
-            <button id="endTurn">End Turn (Space)</button>
-            <button id="wait">Wait (W)</button>
-            <button id="attack">Attack (A)</button>
-        </div>
-    </main>
-    <aside id="helpPanel" class="hidden" role="complementary" aria-label="Game Guide" tabindex="-1"></aside>
+    <div id="landingPage" style="max-width:600px;margin:40px auto;padding:32px;background:#fff;border-radius:12px;box-shadow:0 2px 16px #0002;">
+        <h1>Screen Reader Tactics Game</h1>
+        <p>Welcome to the Screen Reader Tactics Game! This is a keyboard navigable, turn-based tactics game. Read below for an overview of the game, or press <strong>B</strong> to jump to the Start Game button.</p>
+        <h2>Game Elements</h2>
+        <ul>
+            <li>10x10 grid with varying elevations (higher ground gives bonus damage and defense)</li>
+            <li>You control three units: Warrior, Archer, Mage</li>
+            <li>Face off against enemy monsters</li>
+            <li>Each unit has unique movement and attack abilities</li>
+        </ul>
+        <h2>Unit Abilities</h2>
+        <ul>
+            <li><strong>Warrior</strong>: Moves up to 4 tiles, attacks adjacent enemies (1 tile)</li>
+            <li><strong>Archer</strong>: Moves up to 3 tiles, attacks up to 3 tiles away (straight lines)</li>
+            <li><strong>Mage</strong>: Moves up to 2 tiles, attacks any enemy within 2 tiles</li>
+        </ul>
+        <h2>Controls</h2>
+        <p>This game is played with a keyboard. It is recommended that you play with your right hand on the arrow keys and your left hand on the home row keys (<strong>A</strong> <strong>S</strong> <strong>D</strong> <strong>F</strong>).</p>
+        <p>Each turn will follow a similar pattern. Start with the Warrior (or press <strong>Tab</strong> to choose another character), use the arrow keys to move to the desired space, then press <strong>D</strong> to Deploy the character to that space. From there, you can choose to Attack (<strong>A</strong>) or Wait (<strong>W</strong>). Repeat with all 3 characters to complete your turn.</p>
+        <p><strong>Pro Tip:</strong> Knowledge is power! Press <strong>S</strong> to check the Status of your characters or of any square on the grid. Press <strong>E</strong> check the position and status of your enemies.</p>
+        <ul>
+            <li><strong>H</strong>: Toggle the game guide</li>
+            <li><strong>Arrow keys</strong>: Move the selection cursor around the grid</li>
+            <li><strong>Tab</strong>: Cycle between your available units</li>
+            <li><strong>D</strong>: Deploy (move) the selected unit to the currently selected tile (if in range and unoccupied)</li>
+            <li><strong>A</strong>: Attack an enemy at the selected tile (if in range)</li>
+            <li><strong>W</strong>: Wait (end this unit's turn)</li>
+            <li><strong>S</strong>: Status (announce info about the current square and any unit there)</li>
+            <li><strong>E</strong>: Cycle through enemy units and announce their location and health</li>
+            <li><strong>Space</strong>: End your team's turn</li>
+        </ul>
+        <h2>Tips</h2>
+        <ul>
+            <li>Elevation: Each elevation level above your target gives you +5 damage, and each elevation level below gives you -5 damage.</li>
+            <li>Press <strong>H</strong> at any time to review the game guide.</li>
+        </ul>
+        <button id="startGameBtn" style="margin-top:24px;font-size:1.2em;padding:12px 32px;">Start Game</button>
+    </div>
+    <div id="gameUI" style="display:none;">
+        <header>
+            <h1>Tactics Game Demo</h1>
+            <button id="helpButton" aria-expanded="false" aria-controls="helpPanel">Game Guide (H)</button>
+        </header>
+        <main>
+            <div id="gameStatus" role="status" aria-live="polite"></div>
+            <div id="gameGrid" role="grid" aria-label="Battle Grid" tabindex="0"></div>
+            <div id="activeUnit" role="region" aria-label="Active Unit Information">
+                <h2>Active Unit</h2>
+                <div id="unitDetails"></div>
+            </div>
+            <div id="controls" role="group" aria-label="Game Controls">
+                <button id="endTurn">End Turn (Space)</button>
+                <button id="wait">Wait (W)</button>
+                <button id="attack">Attack (A)</button>
+            </div>
+        </main>
+        <aside id="helpPanel" class="hidden" role="complementary" aria-label="Game Guide" tabindex="-1"></aside>
+    </div>
     <script src="js/game.js"></script>
+    <script>
+    let game;
+    document.getElementById('startGameBtn').onclick = function() {
+        document.getElementById('landingPage').style.display = 'none';
+        document.getElementById('gameUI').style.display = '';
+        // Initialize game after UI is visible to ensure announcements are heard
+        setTimeout(() => {
+            game = new Game();
+            game.init();
+        }, 100);
+    };
+    </script>
 </body>
 </html>
